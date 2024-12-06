@@ -162,6 +162,27 @@ class Wmts():
     def projection_to_lat_lon_WGS84(self, x: int, y: int, proj: str):
         return Transformer.from_crs(proj, "EPSG:4326").transform(x, y)
     
+    def getTileSizeMeter(self, tileMatrixSet: TileMatrixSet, level: str):
+        tileMatrix = tileMatrixSet.getTileMatrices()[level]
+        if tileMatrixSet.getCRS() == "EPSG:3857":
+            tileSizeMeter = tileMatrix.getTileSizePx()*EPSG_3857_RES_M_PX[int(level)]
+        elif tileMatrixSet.getCRS() == "EPSG:2154":
+            tileSizeMeter = tileMatrix.getTileSizePx()*EPSG_2154_RES_M_PX[int(level)]
+        else:
+            raise Exception("projection not supported")
+        
+        return tileSizeMeter
+    
+    def getTileSizeMeter(self, tileMatrix: TileMatrix, crs: str, level: str):
+        if crs == "EPSG:3857":
+            tileSizeMeter = tileMatrix.getTileSizePx()*EPSG_3857_RES_M_PX[int(level)]
+        elif crs == "EPSG:2154":
+            tileSizeMeter = tileMatrix.getTileSizePx()*EPSG_2154_RES_M_PX[int(level)]
+        else:
+            raise Exception("projection not supported")
+        
+        return tileSizeMeter
+    
     def lat_lon_to_IGN_projection(self, lat: float, lon: float, tileMatrixSet: TileMatrixSet, level: str):
         tileMatrix = tileMatrixSet.getTileMatrices()[level]
         topLeftCorner = tileMatrix.getTopLeftCorner()
@@ -214,7 +235,7 @@ class Wmts():
         
         return self.projection_to_lat_lon_WGS84(x_uncalibrated, y_uncalibrated, tileMatrixSet.getCRS())
 
-    def call_IGN_WMTS_bbox(self, ne_x: int, ne_y: int, sw_x: int, sw_y: int, level: str, tileSetMatrixSet: str):
+    def call_IGN_WMTS_bbox(self, ne_x: int, ne_y: int, sw_x: int, sw_y: int, level: str, tileSetMatrixSet: str, layer: str):
         imagesDict = {}
         # Loop on ne/sw web mercator tiles
         x = ne_x
@@ -222,7 +243,7 @@ class Wmts():
             imagesDict[x] = {}
             y = ne_y
             while y >= sw_y:
-                image = self.call_IGN_WMTS(x, y, level, tileSetMatrixSet)
+                image = self.call_IGN_WMTS(x, y, level, tileSetMatrixSet, layer)
                 imagesDict[x][y] = image
                 y -= 1
             x += 1
@@ -230,15 +251,16 @@ class Wmts():
         return imagesDict
 
     # https://pillow.readthedocs.io/en/stable/reference/ImageFile.html#PIL.ImageFile.ImageFile
-    def call_IGN_WMTS(self, x: int, y: int, level: str, tileSetMatrixSet: str):
+    def call_IGN_WMTS(self, x: int, y: int, level: str, tileSetMatrixSet: str, layer: str):
         # Request pattern https://data.geopf.fr/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER={Couche}&STYLE={Style}&FORMAT={format}&TILEMATRIXSET={TileMatrixSet}&TILEMATRIX={TileMatrix}&TILEROW={TileRow}&TILECOL={TileCol}
-        url='https://data.geopf.fr/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=ORTHOIMAGERY.ORTHOPHOTOS&STYLE=normal&FORMAT=image/jpeg&TILEMATRIXSET='+tileSetMatrixSet+'&TILEMATRIX='+level+'&TILEROW='+ str(y)+'&TILECOL='+ str(x)
+        url='https://data.geopf.fr/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER='+layer+'&STYLE=normal&FORMAT=image/jpeg&TILEMATRIXSET='+tileSetMatrixSet+'&TILEMATRIX='+level+'&TILEROW='+ str(y)+'&TILECOL='+ str(x)
         response = requests.get(url)
         if response.status_code == 404:
             # Handle 404 error
             raise Exception("url does not exist (HTTP 404): " + url)
         elif response.status_code == 200:
             # Use response content
+            print("Image received.")
             return Image.open(BytesIO(response.content))
         else:
             # Handle all others http status codes

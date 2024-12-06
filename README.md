@@ -14,7 +14,16 @@ Explain the principal in better way than the current IGN WMTS actual documentati
 
 https://geoservices.ign.fr/documentation/services/services-deprecies/images-tuilees-wmts-ogc
 
-## Usage
+## Run locally
+
+```shell
+$ python3 -m venv .venv
+$ source .venv/bin/activate
+$ pip install -r requirements.txt
+$ python3 wmts_example.py
+```
+
+## Usage externally
 
 ```shell
 $ pip install git+https://github.com/francois-poidevin/IGNwmtsPyLib@main
@@ -31,4 +40,4 @@ print(_wmts.getAvailableLayers())
 
 ```
 
-Take a look in __./wmts_example.py__
+Take a look in __./wmts_example.py__ for examples
