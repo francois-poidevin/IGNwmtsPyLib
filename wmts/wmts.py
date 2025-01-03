@@ -5,6 +5,7 @@ import requests
 from io import BytesIO
 from pyproj import Transformer
 import xml.etree.ElementTree as ET
+import os
 
 class BoundingBox:
     def __init__(self, nelon: float, nelat: float, swlon: float,  swlat: float):
@@ -235,7 +236,7 @@ class Wmts():
         
         return self.projection_to_lat_lon_WGS84(x_uncalibrated, y_uncalibrated, tileMatrixSet.getCRS())
 
-    def call_IGN_WMTS_bbox(self, ne_x: int, ne_y: int, sw_x: int, sw_y: int, level: str, tileSetMatrixSet: str, layer: str):
+    def getImageIGNWMTSBbox(self, ne_x: int, ne_y: int, sw_x: int, sw_y: int, level: str, tileSetMatrixSet: str, layer: str):
         imagesDict = {}
         # Loop on ne/sw web mercator tiles
         x = ne_x
@@ -243,7 +244,7 @@ class Wmts():
             imagesDict[x] = {}
             y = ne_y
             while y >= sw_y:
-                image = self.call_IGN_WMTS(x, y, level, tileSetMatrixSet, layer)
+                image = self.getImageIGNWMTS(x, y, level, tileSetMatrixSet, layer)
                 imagesDict[x][y] = image
                 y -= 1
             x += 1
@@ -251,7 +252,7 @@ class Wmts():
         return imagesDict
 
     # https://pillow.readthedocs.io/en/stable/reference/ImageFile.html#PIL.ImageFile.ImageFile
-    def call_IGN_WMTS(self, x: int, y: int, level: str, tileSetMatrixSet: str, layer: str):
+    def getImageIGNWMTS(self, x: int, y: int, level: str, tileSetMatrixSet: str, layer: str):
         # Request pattern https://data.geopf.fr/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER={Couche}&STYLE={Style}&FORMAT={format}&TILEMATRIXSET={TileMatrixSet}&TILEMATRIX={TileMatrix}&TILEROW={TileRow}&TILECOL={TileCol}
         url='https://data.geopf.fr/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER='+layer+'&STYLE=normal&FORMAT=image/jpeg&TILEMATRIXSET='+tileSetMatrixSet+'&TILEMATRIX='+level+'&TILEROW='+ str(y)+'&TILECOL='+ str(x)
         response = requests.get(url)
@@ -265,3 +266,42 @@ class Wmts():
         else:
             # Handle all others http status codes
             raise Exception("url request error: " + url + " . HTTPCode: " + response.status_code)
+        
+    def saveImageIGNWMTSBbox(self, ne_x: int, ne_y: int, sw_x: int, sw_y: int, level: str, tileSetMatrixSet: str, layer: str, filePath: str):
+        filePathArray = []
+        # Loop on ne/sw web mercator tiles
+        x = ne_x
+        while x <= sw_x:
+            y = ne_y
+            while y >= sw_y:
+                savedFilePath = self.saveImageIGNWMTS(x, y, level, tileSetMatrixSet, layer, filePath)
+                filePathArray.append(savedFilePath)
+                y -= 1
+            x += 1
+            
+        return filePathArray
+        
+    def saveImageIGNWMTS(self, x: int, y: int, level: str, tileSetMatrixSet: str, layer: str, saveFolder: str):
+        # Add trailing slash if it is not already there
+        saveFolder = os.path.join(saveFolder, '', '')
+        # Check saveFolder parameter - check folder exist
+        if not os.path.exists(saveFolder):
+            raise Exception(f"Path does not exist: {saveFolder}")
+        
+        # Request pattern https://data.geopf.fr/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER={Couche}&STYLE={Style}&FORMAT={format}&TILEMATRIXSET={TileMatrixSet}&TILEMATRIX={TileMatrix}&TILEROW={TileRow}&TILECOL={TileCol}
+        url='https://data.geopf.fr/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER='+layer+'&STYLE=normal&FORMAT=image/jpeg&TILEMATRIXSET='+tileSetMatrixSet+'&TILEMATRIX='+level+'&TILEROW='+ str(y)+'&TILECOL='+ str(x)
+        response = requests.get(url)
+        if response.status_code == 404:
+            # Handle 404 error
+            raise Exception("url does not exist (HTTP 404): " + url)
+        elif response.status_code == 200:
+            filePath = saveFolder + f"IGN_WMTS_{str(x)}_{str(y)}.jpeg"
+            # Use response content
+            print(f"Image received and saved at: {filePath}")
+            Image.open(BytesIO(response.content)).save(filePath)
+            return filePath
+        else:
+            # Handle all others http status codes
+            raise Exception("url request error: " + url + " . HTTPCode: " + response.status_code)
+    
+    
