@@ -106,7 +106,7 @@ class Wmts():
             return ET.parse(BytesIO(response.content))
         else:
             # Handle all others http status codes
-            raise Exception("url request error: " + url + " . HTTPCode: " + response.status_code)
+            raise Exception(f"url request error: {url} . HTTPCode: {response.status_code}")
 
     def getAvailableLayers(self):
         layers = {}
@@ -121,38 +121,71 @@ class Wmts():
             xmlIGN =  ET.parse(BytesIO(response.content))
         else:
             # Handle all others http status codes
-            raise Exception("url request error: " + url + " . HTTPCode: " + response.status_code)
+            raise Exception(f"url request error: {url} . HTTPCode: {response.status_code}")
 
         xmlContent = xmlIGN.find('{http://www.opengis.net/wmts/1.0}Contents')
         
+        if xmlContent is None:
+            raise Exception("Could not find 'Contents' element in the WMTS capabilities XML.")
+
         xmlLayers = xmlContent.findall('{http://www.opengis.net/wmts/1.0}Layer')
         for child in xmlLayers:
-            layerTitle = child.find('{http://www.opengis.net/ows/1.1}Title').text
-            layerAbstract = child.find('{http://www.opengis.net/ows/1.1}Abstract').text
-            layerIdentifier = child.find('{http://www.opengis.net/ows/1.1}Identifier').text
+            titleElem = child.find('{http://www.opengis.net/ows/1.1}Title')
+            abstractElem = child.find('{http://www.opengis.net/ows/1.1}Abstract')
+            identifierElem = child.find('{http://www.opengis.net/ows/1.1}Identifier')
+            layerTitle = titleElem.text if titleElem is not None else ""
+            layerAbstract = abstractElem.text if abstractElem is not None else ""
+            layerIdentifier = identifierElem.text if identifierElem is not None else ""
             layerTileMatrixSetIdentifier = ""
             xmlLayerTileMatrixSet = child.find('{http://www.opengis.net/wmts/1.0}TileMatrixSetLink')
-            layerTileMatrixSetIdentifier = xmlLayerTileMatrixSet.find('{http://www.opengis.net/wmts/1.0}TileMatrixSet').text
+            if xmlLayerTileMatrixSet is not None:
+                tileMatrixSetElem = xmlLayerTileMatrixSet.find('{http://www.opengis.net/wmts/1.0}TileMatrixSet')
+                if tileMatrixSetElem is not None:
+                    layerTileMatrixSetIdentifier = tileMatrixSetElem.text
+                else:
+                    raise Exception("TileMatrixSet element not found in TileMatrixSetLink.")
+            else:
+                raise Exception("TileMatrixSetLink element not found in Layer.")
         
             # Load tileMatrix for the layer
             xmlTileMatrixSet = xmlContent.findall('{http://www.opengis.net/wmts/1.0}TileMatrixSet')
             for xmlTileMatrixSetChild in xmlTileMatrixSet:
-                if xmlTileMatrixSetChild.find('{http://www.opengis.net/ows/1.1}Identifier').text == layerTileMatrixSetIdentifier:
+                identifierElem = xmlTileMatrixSetChild.find('{http://www.opengis.net/ows/1.1}Identifier')
+                if identifierElem is not None and identifierElem.text == layerTileMatrixSetIdentifier:
                     tileMatrices = {}
                     tmsCRS = ""
-                    tmsCRS = xmlTileMatrixSetChild.find('{http://www.opengis.net/ows/1.1}SupportedCRS').text
+                    supportedCRSElem = xmlTileMatrixSetChild.find('{http://www.opengis.net/ows/1.1}SupportedCRS')
+                    if supportedCRSElem is not None and supportedCRSElem.text is not None:
+                        tmsCRS = supportedCRSElem.text
+                    else:
+                        raise Exception("SupportedCRS element or its text is missing in TileMatrixSet.")
                     xmlTileMatrices = xmlTileMatrixSetChild.findall('{http://www.opengis.net/wmts/1.0}TileMatrix')
                     for tileMatrix in xmlTileMatrices:
                         topLeftCornerDict = {}
-                        level = tileMatrix.find('{http://www.opengis.net/ows/1.1}Identifier').text
-                        topLeftCorner = tileMatrix.find('{http://www.opengis.net/wmts/1.0}TopLeftCorner').text.split()
+                        identifierElem = tileMatrix.find('{http://www.opengis.net/ows/1.1}Identifier')
+                        if identifierElem is None or identifierElem.text is None:
+                            raise Exception("Identifier element or its text is missing in TileMatrix.")
+                        level = identifierElem.text
+                        topLeftCornerElem = tileMatrix.find('{http://www.opengis.net/wmts/1.0}TopLeftCorner')
+                        if topLeftCornerElem is None or topLeftCornerElem.text is None:
+                            raise Exception("TopLeftCorner element or its text is missing in TileMatrix.")
+                        topLeftCorner = topLeftCornerElem.text.split()
                         topLeftCornerDict['x0'] = float(topLeftCorner[0])
                         topLeftCornerDict['y0'] = float(topLeftCorner[1])
-                        tileSize = int(tileMatrix.find('{http://www.opengis.net/wmts/1.0}TileWidth').text)
+                        tileWidthElem = tileMatrix.find('{http://www.opengis.net/wmts/1.0}TileWidth')
+                        if tileWidthElem is None or tileWidthElem.text is None:
+                            raise Exception("TileWidth element or its text is missing in TileMatrix.")
+                        tileSize = int(tileWidthElem.text)
                         tileMatrices[level] = TileMatrix(level, topLeftCornerDict, tileSize)
-                    tileMatrixSet = TileMatrixSet(layerTileMatrixSetIdentifier, tmsCRS, tileMatrices)
-
-                    ignLayer = IgnLayer(layerTitle, layerAbstract, layerIdentifier, layerTileMatrixSetIdentifier, tileMatrixSet)
+                    tms_identifier = layerTileMatrixSetIdentifier if layerTileMatrixSetIdentifier is not None else ""
+                    tileMatrixSet = TileMatrixSet(tms_identifier, tmsCRS, tileMatrices)
+                    ignLayer = IgnLayer(
+                        layerTitle if layerTitle is not None else "",
+                        layerAbstract if layerAbstract is not None else "",
+                        layerIdentifier if layerIdentifier is not None else "",
+                        layerTileMatrixSetIdentifier if layerTileMatrixSetIdentifier is not None else "",
+                        tileMatrixSet
+                    )
                     layers[layerIdentifier] = ignLayer
                     break
         return layers
@@ -174,7 +207,7 @@ class Wmts():
         
         return tileSizeMeter
     
-    def getTileSizeMeter(self, tileMatrix: TileMatrix, crs: str, level: str):
+    def getTileSizeMeterForMatrix(self, tileMatrix: TileMatrix, crs: str, level: str):
         if crs == "EPSG:3857":
             tileSizeMeter = tileMatrix.getTileSizePx()*EPSG_3857_RES_M_PX[int(level)]
         elif crs == "EPSG:2154":
@@ -265,7 +298,7 @@ class Wmts():
             return Image.open(BytesIO(response.content))
         else:
             # Handle all others http status codes
-            raise Exception("url request error: " + url + " . HTTPCode: " + response.status_code)
+            raise Exception(f"url request error: {url} . HTTPCode: {response.status_code}")
         
     def saveImageIGNWMTSBbox(self, ne_x: int, ne_y: int, sw_x: int, sw_y: int, level: str, tileSetMatrixSet: str, layer: str, filePath: str):
         filePathArray = []
@@ -302,6 +335,6 @@ class Wmts():
             return filePath
         else:
             # Handle all others http status codes
-            raise Exception("url request error: " + url + " . HTTPCode: " + response.status_code)
+            raise Exception(f"url request error: {url} . HTTPCode: {response.status_code}")
     
     
